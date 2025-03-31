@@ -47,7 +47,7 @@ const NavLink = ({ href, children, className }: { href: string; children: React.
 );
 
 export default function Home() {
-  const { problems, error, handleProblemToggle, toggleBookmark, hasFetched, isHydrated, fetchProblems, hydrate } = useProblemsStore();
+  const { problems, error, handleProblemToggle, toggleBookmark, hasFetched, isHydrated, fetchProblems, hydrate, clearStore } = useProblemsStore();
   const [showTags, setShowTags] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [selectedDifficulty, setSelectedDifficulty] = useState<'Easy' | 'Medium' | 'Hard' | null>(null);
@@ -68,8 +68,10 @@ export default function Home() {
   useEffect(() => {
     setMounted(true);
     hydrate();
+    // Clear store and force fresh fetch
+    clearStore();
     return () => setMounted(false);
-  }, [hydrate]);
+  }, [hydrate, clearStore]);
 
   // Fetch problems if needed
   useEffect(() => {

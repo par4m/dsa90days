@@ -12,6 +12,7 @@ interface ProblemsState {
   toggleBookmark: (problemId: string) => void;
   handleProblemToggle: (problemId: string, attemptIndex: number) => void;
   hydrate: () => void;
+  clearStore: () => void;
 }
 
 const initialState: ProblemsState = {
@@ -24,6 +25,7 @@ const initialState: ProblemsState = {
   toggleBookmark: () => {},
   handleProblemToggle: () => {},
   hydrate: () => {},
+  clearStore: () => {},
 };
 
 // Load initial state from localStorage
@@ -65,6 +67,11 @@ const useProblemsStore = create<ProblemsState>()((set, get) => ({
 
   hydrate: () => {
     set({ isHydrated: true });
+  },
+
+  clearStore: () => {
+    localStorage.removeItem('problemsState');
+    set(initialState);
   },
 
   fetchProblems: async () => {
