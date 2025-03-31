@@ -288,7 +288,7 @@ export default function Home() {
                 )}
               </button>
               <a
-                href="https://github.com/your-username/dsa90days"
+                href="https://github.com/par4m/dsa90days"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-gray-500 hover:text-gray-900 dark:hover:text-gray-100 transition-colors duration-200"

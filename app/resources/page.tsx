@@ -31,7 +31,7 @@ const resources = [
   {
     id: '4',
     title: '3 Months DSA for Placements! Beginner, Medium & Advanced Level!',
-    videoId: 'PLACEHOLDER_VIDEO_ID_4',
+    videoId: 'hw2nv3jIgZs',
     description: 'A structured 3-month plan covering DSA from beginner to advanced level for placements.',
     tags: ['#dsa', '#leetcode', '#java', '#course-plan'],
     addedAt: '2024-03-17',
