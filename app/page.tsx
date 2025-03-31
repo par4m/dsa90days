@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { Problem, Topic, Company } from '@/types';
 import { getPlaylistItems } from '@/utils/youtube';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
+import { useProblemsStore } from '@/store/problems';
 
 const topics: Topic[] = [
   'Arrays',
@@ -46,8 +47,7 @@ const NavLink = ({ href, children, className }: { href: string; children: React.
 );
 
 export default function Home() {
-  const [problems, setProblems] = useState<Problem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { problems, error, handleProblemToggle, toggleBookmark, hasFetched, isHydrated, fetchProblems, hydrate } = useProblemsStore();
   const [showTags, setShowTags] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
   const [selectedDifficulty, setSelectedDifficulty] = useState<'Easy' | 'Medium' | 'Hard' | null>(null);
@@ -64,121 +64,118 @@ export default function Home() {
 
   const difficulties: ('Easy' | 'Medium' | 'Hard')[] = ['Easy', 'Medium', 'Hard'];
 
-  // Load user preferences and progress from localStorage
-  useEffect(() => {
-    const loadUserData = () => {
-      try {
-        const savedProblems = localStorage.getItem('problems');
-        const savedShowTags = localStorage.getItem('showTags');
-        const savedSelectedTopic = localStorage.getItem('selectedTopic');
-        const savedSelectedDifficulty = localStorage.getItem('selectedDifficulty');
-        const savedSelectedCompany = localStorage.getItem('selectedCompany');
-        const savedSortBy = localStorage.getItem('sortBy');
-        const savedSortOrder = localStorage.getItem('sortOrder');
-
-        if (savedProblems) {
-          setProblems(JSON.parse(savedProblems));
-        }
-        if (savedShowTags) {
-          setShowTags(JSON.parse(savedShowTags));
-        }
-        if (savedSelectedTopic) {
-          setSelectedTopic(JSON.parse(savedSelectedTopic));
-        }
-        if (savedSelectedDifficulty) {
-          setSelectedDifficulty(JSON.parse(savedSelectedDifficulty));
-        }
-        if (savedSelectedCompany) {
-          setSelectedCompany(JSON.parse(savedSelectedCompany));
-        }
-        if (savedSortBy) {
-          setSortBy(JSON.parse(savedSortBy));
-        }
-        if (savedSortOrder) {
-          setSortOrder(JSON.parse(savedSortOrder));
-        }
-      } catch (error) {
-        console.error('Error loading user data:', error);
-      }
-    };
-
-    loadUserData();
-  }, []);
-
-  // Save user preferences and progress to localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('problems', JSON.stringify(problems));
-      localStorage.setItem('showTags', JSON.stringify(showTags));
-      localStorage.setItem('selectedTopic', JSON.stringify(selectedTopic));
-      localStorage.setItem('selectedDifficulty', JSON.stringify(selectedDifficulty));
-      localStorage.setItem('selectedCompany', JSON.stringify(selectedCompany));
-      localStorage.setItem('sortBy', JSON.stringify(sortBy));
-      localStorage.setItem('sortOrder', JSON.stringify(sortOrder));
-    } catch (error) {
-      console.error('Error saving user data:', error);
-    }
-  }, [problems, showTags, selectedTopic, selectedDifficulty, selectedCompany, sortBy, sortOrder]);
-
+  // Handle initial mount and hydration
   useEffect(() => {
     setMounted(true);
-  }, []);
+    hydrate();
+    return () => setMounted(false);
+  }, [hydrate]);
 
+  // Fetch problems if needed
   useEffect(() => {
-    getPlaylistItems().then((items) => {
-      // Sort problems by difficulty (Easy -> Medium -> Hard)
-      const sortedItems = items.sort((a, b) => {
-        const difficultyOrder = { 'Easy': 0, 'Medium': 1, 'Hard': 2 };
-        return difficultyOrder[a.difficulty] - difficultyOrder[b.difficulty];
-      });
-
-      // Merge with existing progress
-      const existingProblems = localStorage.getItem('problems');
-      if (existingProblems) {
-        const savedProgress = JSON.parse(existingProblems);
-        const mergedItems = sortedItems.map(item => {
-          const savedItem = savedProgress.find((p: Problem) => p.id === item.id);
-          return savedItem ? { ...item, ...savedItem } : item;
-        });
-        setProblems(mergedItems);
-      } else {
-        setProblems(sortedItems);
-      }
-      setLoading(false);
-    });
-  }, []);
-
-  // Timer logic
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (activeTimer && timeLeft > 0) {
-      timer = setInterval(() => {
-        setTimeLeft(prev => prev - 1);
-      }, 1000);
-    } else if (timeLeft === 0) {
-      // Timer completed
-      setActiveTimer(null);
+    if (!mounted || !isHydrated) return;
+    
+    if (!hasFetched && problems.length === 0) {
+      fetchProblems();
     }
-    return () => clearInterval(timer);
+  }, [mounted, isHydrated, hasFetched, problems.length, fetchProblems]);
+
+  // Load user preferences from localStorage
+  useEffect(() => {
+    if (!mounted || !isHydrated) return;
+
+    try {
+      const savedShowTags = localStorage.getItem('showTags');
+      const savedSelectedTopic = localStorage.getItem('selectedTopic');
+      const savedSelectedDifficulty = localStorage.getItem('selectedDifficulty');
+      const savedSelectedCompany = localStorage.getItem('selectedCompany');
+      const savedSortBy = localStorage.getItem('sortBy');
+      const savedSortOrder = localStorage.getItem('sortOrder');
+
+      if (savedShowTags) setShowTags(JSON.parse(savedShowTags));
+      if (savedSelectedTopic) setSelectedTopic(JSON.parse(savedSelectedTopic));
+      if (savedSelectedDifficulty) setSelectedDifficulty(JSON.parse(savedSelectedDifficulty));
+      if (savedSelectedCompany) setSelectedCompany(JSON.parse(savedSelectedCompany));
+      if (savedSortBy) setSortBy(JSON.parse(savedSortBy));
+      if (savedSortOrder) setSortOrder(JSON.parse(savedSortOrder));
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    }
+  }, [mounted, isHydrated]);
+
+  // Debounced save user preferences to localStorage
+  useEffect(() => {
+    if (!mounted) return;
+    
+    const timeoutId = setTimeout(() => {
+      try {
+        localStorage.setItem('showTags', JSON.stringify(showTags));
+        localStorage.setItem('selectedTopic', JSON.stringify(selectedTopic));
+        localStorage.setItem('selectedDifficulty', JSON.stringify(selectedDifficulty));
+        localStorage.setItem('selectedCompany', JSON.stringify(selectedCompany));
+        localStorage.setItem('sortBy', JSON.stringify(sortBy));
+        localStorage.setItem('sortOrder', JSON.stringify(sortOrder));
+      } catch (error) {
+        console.error('Error saving user data:', error);
+      }
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [mounted, showTags, selectedTopic, selectedDifficulty, selectedCompany, sortBy, sortOrder]);
+
+  // Timer effect
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (activeTimer && timeLeft > 0) {
+      interval = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            setActiveTimer(null);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
   }, [activeTimer, timeLeft]);
 
-  const formatTime = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  // Memoize filtered and sorted problems
+  const filteredProblems = useMemo(() => {
+    return problems.filter(problem => {
+      const matchesTopic = !selectedTopic || problem.topic === selectedTopic;
+      const matchesDifficulty = !selectedDifficulty || problem.difficulty === selectedDifficulty;
+      const matchesCompany = !selectedCompany || problem.companies.includes(selectedCompany);
+      const matchesSearch = !searchQuery || 
+        problem.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        problem.topic.toLowerCase().includes(searchQuery.toLowerCase());
 
-  const startTimer = (problemId: string, duration: number = 1800) => { // Default 30 minutes
-    setActiveTimer(problemId);
-    setTimeLeft(duration);
-  };
+      return matchesTopic && matchesDifficulty && matchesCompany && matchesSearch;
+    }).sort((a, b) => {
+      if (sortBy === 'difficulty') {
+        const difficultyOrder = { 'Easy': 0, 'Medium': 1, 'Hard': 2 };
+        return sortOrder === 'asc' 
+          ? difficultyOrder[a.difficulty] - difficultyOrder[b.difficulty]
+          : difficultyOrder[b.difficulty] - difficultyOrder[a.difficulty];
+      } else if (sortBy === 'title') {
+        return sortOrder === 'asc'
+          ? a.title.localeCompare(b.title)
+          : b.title.localeCompare(a.title);
+      } else {
+        return sortOrder === 'asc'
+          ? a.topic.localeCompare(b.topic)
+          : b.topic.localeCompare(a.topic);
+      }
+    });
+  }, [problems, selectedTopic, selectedDifficulty, selectedCompany, searchQuery, sortBy, sortOrder]);
 
-  const stopTimer = () => {
-    setActiveTimer(null);
-    setTimeLeft(0);
-  };
+  // Memoize handlers
+  const handleAttemptProblem = useCallback((problemId: string) => {
+    handleProblemToggle(problemId, 0);
+  }, [handleProblemToggle]);
 
-  const toggleProblemExpand = (problemId: string) => {
+  const toggleProblemExpand = useCallback((problemId: string) => {
     setExpandedProblems(prev => {
       const newSet = new Set(prev);
       if (newSet.has(problemId)) {
@@ -188,68 +185,58 @@ export default function Home() {
       }
       return newSet;
     });
+  }, []);
+
+  const startTimer = useCallback((problemId: string, duration: number = 1800) => {
+    setActiveTimer(problemId);
+    setTimeLeft(duration);
+  }, []);
+
+  const stopTimer = useCallback(() => {
+    setActiveTimer(null);
+    setTimeLeft(0);
+  }, []);
+
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleProblemToggle = (problemId: string, attemptIndex: number) => {
-    const updatedProblems = problems.map(problem => {
-      if (problem.id === problemId) {
-        const attempts = [...(problem.attempts || [])];
-        const attempt = attempts[attemptIndex];
-        
-        if (attempt) {
-          // If attempt exists, remove it
-          attempts.splice(attemptIndex, 1);
-        } else {
-          // If no attempt exists, add a new successful attempt
-          attempts.push({
-            date: new Date().toISOString(),
-            successful: true
-          });
-        }
-
-        return {
-          ...problem,
-          attempts,
-          lastAttempted: attempts.length > 0 ? new Date().toISOString() : undefined
-        };
-      }
-      return problem;
-    });
-
-    setProblems(updatedProblems);
-    localStorage.setItem('problems', JSON.stringify(updatedProblems));
-  };
-
-  const toggleBookmark = (problemId: string) => {
-    const updatedProblems = problems.map(problem => {
-      if (problem.id === problemId) {
-        return { ...problem, starred: !problem.starred };
-      }
-      return problem;
-    });
-
-    setProblems(updatedProblems);
-    localStorage.setItem('problems', JSON.stringify(updatedProblems));
-  };
-
-  const handleAttemptProblem = (id: string) => {
-    setProblems(problems.map(p => 
-      p.id === id ? { ...p, lastAttempted: new Date().toISOString() } : p
-    ));
-  };
-
-  const filteredProblems = problems.filter(problem => {
-    const matchesTopic = !selectedTopic || problem.topic === selectedTopic;
-    const matchesDifficulty = !selectedDifficulty || problem.difficulty === selectedDifficulty;
-    const matchesCompany = !selectedCompany || problem.companies.includes(selectedCompany);
-    const matchesSearch = !searchQuery || 
-      problem.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      problem.topic.toLowerCase().includes(searchQuery.toLowerCase());
-
-    return matchesTopic && matchesDifficulty && matchesCompany && matchesSearch;
-  });
-
-  if (!mounted) return null;
+  // Don't return null during hydration, just show a loading state
+  if (!mounted || !isHydrated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950 transition-colors duration-200">
+        {/* Header */}
+        <header className="sticky top-0 z-50 w-full border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-950/80 backdrop-blur-lg">
+          <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex h-16 items-center justify-between">
+              <div className="flex items-center">
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">DSA90</h1>
+                <div className="hidden md:block ml-10 space-x-8">
+                  <NavLink href="/" className="relative group">
+                    Problems
+                    <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 group-hover:w-full transition-all duration-300"></span>
+                  </NavLink>
+                  <NavLink href="/progress" className="relative group">
+                    Progress
+                    <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 group-hover:w-full transition-all duration-300"></span>
+                  </NavLink>
+                  <NavLink href="/resources" className="relative group">
+                    Resources
+                    <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 group-hover:w-full transition-all duration-300"></span>
+                  </NavLink>
+                </div>
+              </div>
+            </div>
+          </nav>
+        </header>
+        <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
+          <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950 transition-colors duration-200">
@@ -617,14 +604,7 @@ export default function Home() {
             "space-y-4",
             viewMode === 'grid' && "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
           )}>
-            {loading ? (
-              <div className="flex h-64 items-center justify-center">
-                <div className="text-center">
-                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 dark:border-gray-700 border-t-blue-500" />
-                  <p className="mt-4 text-sm font-medium text-gray-500 dark:text-gray-400">Loading problems...</p>
-                </div>
-              </div>
-            ) : filteredProblems.length === 0 ? (
+            {filteredProblems.length === 0 ? (
               <div className="flex h-64 items-center justify-center">
                 <div className="text-center">
                   <p className="text-lg font-medium text-gray-900 dark:text-gray-100">No problems found</p>

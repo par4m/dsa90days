@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
 import { useTheme } from 'next-themes';
+import { useProblemsStore } from '@/store/problems';
 
 const NavLink = ({ href, children, className }: { href: string; children: React.ReactNode; className?: string }) => (
   <a
@@ -20,45 +21,53 @@ const NavLink = ({ href, children, className }: { href: string; children: React.
 );
 
 export default function Progress() {
-  const [problems, setProblems] = useState<Problem[]>([]);
+  const { problems, isHydrated, hydrate, handleProblemToggle, toggleBookmark } = useProblemsStore();
+  const [mounted, setMounted] = useState(false);
   const [bookmarkedProblems, setBookmarkedProblems] = useState<Problem[]>([]);
   const [revisionProblems, setRevisionProblems] = useState<Problem[]>([]);
   const [activeTimer, setActiveTimer] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState<number>(0);
   const { theme } = useTheme();
-  const [mounted, setMounted] = useState(false);
 
-  // Load problems from localStorage
-  useEffect(() => {
-    const savedProblems = localStorage.getItem('problems');
-    if (savedProblems) {
-      const parsedProblems = JSON.parse(savedProblems);
-      setProblems(parsedProblems);
-      setBookmarkedProblems(parsedProblems.filter((p: Problem) => p.starred));
-      setRevisionProblems(getRandomRevisionProblems(parsedProblems));
-    }
-  }, []);
-
+  // Handle initial mount and hydration
   useEffect(() => {
     setMounted(true);
-  }, []);
+    hydrate();
+    return () => setMounted(false);
+  }, [hydrate]);
 
-  // Timer logic
+  // Update bookmarked and revision problems
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    if (!mounted || !isHydrated) return;
+
+    const bookmarked = problems.filter(p => p.starred);
+    const revision = getRandomRevisionProblems(problems);
+    setBookmarkedProblems(bookmarked);
+    setRevisionProblems(revision);
+  }, [mounted, isHydrated, problems]);
+
+  // Timer effect
+  useEffect(() => {
+    if (!mounted || !isHydrated) return;
+
+    let interval: NodeJS.Timeout;
     if (activeTimer && timeLeft > 0) {
-      timer = setInterval(() => {
-        setTimeLeft(prev => prev - 1);
+      interval = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            setActiveTimer(null);
+            return 0;
+          }
+          return prev - 1;
+        });
       }, 1000);
-    } else if (timeLeft === 0) {
-      // Timer completed
-      setActiveTimer(null);
     }
-    return () => clearInterval(timer);
-  }, [activeTimer, timeLeft]);
+    return () => clearInterval(interval);
+  }, [mounted, isHydrated, activeTimer, timeLeft]);
 
   const getRandomRevisionProblems = (allProblems: Problem[]): Problem[] => {
-    const solvedProblems = allProblems.filter(p => p.attempts.length > 0 && !p.starred);
+    const solvedProblems = allProblems.filter(p => p.attempts?.length > 0 && !p.starred);
     const shuffled = [...solvedProblems].sort(() => 0.5 - Math.random());
     return shuffled.slice(0, 5); // Return 5 random problems
   };
@@ -79,53 +88,48 @@ export default function Progress() {
     setTimeLeft(0);
   };
 
-  const toggleBookmark = (problemId: string) => {
-    const updatedProblems = problems.map(problem => {
-      if (problem.id === problemId) {
-        return { ...problem, starred: !problem.starred };
-      }
-      return problem;
-    });
-
-    setProblems(updatedProblems);
-    setBookmarkedProblems(updatedProblems.filter(p => p.starred));
-    setRevisionProblems(getRandomRevisionProblems(updatedProblems));
-    localStorage.setItem('problems', JSON.stringify(updatedProblems));
+  const handleBookmarkToggle = (problemId: string) => {
+    toggleBookmark(problemId);
   };
 
   const handleAttemptToggle = (problemId: string, attemptIndex: number) => {
-    const updatedProblems = problems.map(problem => {
-      if (problem.id === problemId) {
-        const attempts = [...(problem.attempts || [])];
-        const attempt = attempts[attemptIndex];
-        
-        if (attempt) {
-          // If attempt exists, remove it
-          attempts.splice(attemptIndex, 1);
-        } else {
-          // If no attempt exists, add a new successful attempt
-          attempts.push({
-            date: new Date().toISOString(),
-            successful: true
-          });
-        }
-
-        return {
-          ...problem,
-          attempts,
-          lastAttempted: attempts.length > 0 ? new Date().toISOString() : undefined
-        };
-      }
-      return problem;
-    });
-
-    setProblems(updatedProblems);
-    setBookmarkedProblems(updatedProblems.filter(p => p.starred));
-    setRevisionProblems(getRandomRevisionProblems(updatedProblems));
-    localStorage.setItem('problems', JSON.stringify(updatedProblems));
+    handleProblemToggle(problemId, attemptIndex);
   };
 
-  if (!mounted) return null;
+  // Don't return null during hydration, just show a loading state
+  if (!mounted || !isHydrated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950 transition-colors duration-200">
+        {/* Header */}
+        <header className="sticky top-0 z-50 w-full border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-950/80 backdrop-blur-lg">
+          <nav className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex h-16 items-center justify-between">
+              <div className="flex items-center">
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">DSA90</h1>
+                <div className="hidden md:block ml-10 space-x-8">
+                  <NavLink href="/" className="relative group">
+                    Problems
+                    <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 group-hover:w-full transition-all duration-300"></span>
+                  </NavLink>
+                  <NavLink href="/progress" className="relative group">
+                    Progress
+                    <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 group-hover:w-full transition-all duration-300"></span>
+                  </NavLink>
+                  <NavLink href="/resources" className="relative group">
+                    Resources
+                    <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-blue-600 group-hover:w-full transition-all duration-300"></span>
+                  </NavLink>
+                </div>
+              </div>
+            </div>
+          </nav>
+        </header>
+        <div className="flex items-center justify-center min-h-[calc(100vh-4rem)]">
+          <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading...</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white dark:from-gray-900 dark:to-gray-950 transition-colors duration-200">
@@ -273,7 +277,7 @@ export default function Progress() {
                           </button>
                         )}
                         <button
-                          onClick={() => toggleBookmark(problem.id)}
+                          onClick={() => handleBookmarkToggle(problem.id)}
                           className={cn(
                             "rounded-full p-2 transition-colors duration-200",
                             problem.starred
@@ -442,7 +446,7 @@ export default function Progress() {
                           </button>
                         )}
                         <button
-                          onClick={() => toggleBookmark(problem.id)}
+                          onClick={() => handleBookmarkToggle(problem.id)}
                           className={cn(
                             "rounded-full p-2 transition-colors duration-200",
                             problem.starred
