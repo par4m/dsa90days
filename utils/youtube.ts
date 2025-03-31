@@ -112,6 +112,12 @@ export async function getPlaylistItems(): Promise<Problem[]> {
       const title = item.snippet.title;
       const videoId = item.snippet.resourceId.videoId;
       const publishedAt = item.snippet.publishedAt;
+      const description = item.snippet.description;
+
+      // Only use LeetCode link from description
+      const leetCodeLink = extractLeetCodeLink(description);
+      console.log('Title:', title);
+      console.log('Found LeetCode link:', leetCodeLink);
 
       return {
         id: videoId,
@@ -120,7 +126,7 @@ export async function getPlaylistItems(): Promise<Problem[]> {
         topic: getTopicFromTitle(title),
         difficulty: getDifficultyFromTitle(title),
         companies: getCompaniesFromTitle(title),
-        questionLink: getQuestionLinkFromTitle(title),
+        questionLink: leetCodeLink || '', // Return empty string if no link found
         completed: false,
         starred: false,
         addedAt: publishedAt,
@@ -131,6 +137,35 @@ export async function getPlaylistItems(): Promise<Problem[]> {
     console.error('Error fetching playlist items:', error);
     return getMockData();
   }
+}
+
+function extractLeetCodeLink(description: string): string | null {
+  // First try to find a direct LeetCode link
+  const directLinkRegex = /https:\/\/leetcode\.com\/problems\/[a-z0-9-]+(?:\/[a-z0-9-]*)?\/?/i;
+  const directMatch = description.match(directLinkRegex);
+  if (directMatch) {
+    const url = directMatch[0];
+    const cleanUrl = url.replace(/\/$/, ''); // Remove trailing slash if present
+    console.log('Found direct LeetCode link:', cleanUrl);
+    return cleanUrl;
+  }
+
+  // If no direct link found, try to find a link in a line containing "leetcode"
+  const lines = description.split('\n');
+  for (const line of lines) {
+    if (line.toLowerCase().includes('leetcode')) {
+      const linkMatch = line.match(/https:\/\/[^\s]+/i);
+      if (linkMatch) {
+        const url = linkMatch[0];
+        const cleanUrl = url.replace(/\/$/, ''); // Remove trailing slash if present
+        console.log('Found LeetCode link in line:', cleanUrl);
+        return cleanUrl;
+      }
+    }
+  }
+
+  console.log('No LeetCode link found in description');
+  return null;
 }
 
 // Mock data for development
@@ -240,12 +275,25 @@ function getCompaniesFromTitle(title: string): Problem['companies'] {
 }
 
 function getQuestionLinkFromTitle(title: string): string {
-  // Extract LeetCode problem number and title
-  const match = title.match(/(\d+)\.\s+(.+)/);
-  if (!match) return '';
-
-  const [_, number, problemTitle] = match;
-  const slug = problemTitle
+  // Remove any text before the first | if it exists
+  const titleAfterPipe = title.split('|')[1]?.trim() || title.trim();
+  
+  // Remove course outline and level-related text
+  const titleWithoutLevels = titleAfterPipe
+    .replace(/(beginner|medium|advanced|level|course|outline|dsa|days|placements)/gi, '')
+    .trim();
+  
+  // Remove difficulty tags if present
+  const titleWithoutDifficulty = titleWithoutLevels.replace(/#(easy|medium|hard)/i, '').trim();
+  
+  // Remove any leading numbers, dots, or special characters
+  const cleanTitle = titleWithoutDifficulty.replace(/^[\d\s.-]+/, '').trim();
+  
+  // Remove any text in parentheses or brackets
+  const titleWithoutBrackets = cleanTitle.replace(/[\(\[].*?[\)\]]/g, '').trim();
+  
+  // Convert to URL-friendly slug
+  const slug = titleWithoutBrackets
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
